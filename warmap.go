@@ -150,7 +150,6 @@ type GPSPoint struct {
 //checkError is a generic error check function
 func checkError(err error) {
 	if err != nil {
-		fmt.Println("here")
 		panic(err)
 	}
 }
@@ -159,7 +158,9 @@ func checkError(err error) {
 //containing its values
 func parseXML(file string) (target GPSRun) {
 	xmlFile, err := os.Open(file)
-	checkError(err)
+	if err != nil {
+		panic("Ensure the GPSXML file exists")
+	}
 	defer xmlFile.Close()
 	var xmlData io.Reader = bufio.NewReader(xmlFile)
 	decoder := xml.NewDecoder(xmlData)
@@ -317,6 +318,10 @@ func main() {
 	var bssid = flag.String("b", "", "File or comma seperated list of bssids")
 	var outFile = flag.String("o", "", "Html Output file")
 	flag.Parse()
+	if !flag.Parsed() || !(flag.NArg() == 3) {
+		fmt.Println("Usage: warmap -f <Kismet gpsxml file> -b <File or List of BSSIDs> -o <HTML output file>")
+		os.Exit(1)
+	}
 	xmlTree := parseXML(*gpsxmlFile)
 	bssidData := parseBssid(*bssid)
 	filteredPoints := filterBSSID(xmlTree.GPSPoints, bssidData)

@@ -32,7 +32,6 @@ const tpl = `
   <head>
     <title>WarMap</title>
     <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script>
-    <script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=true"></script>
     <script type="text/javascript" src="http://hpneo.github.io/gmaps/gmaps.js"></script>
     <link href="http://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -42,45 +41,14 @@ const tpl = `
         height: 700;
       }
     </style>
-    <script>
-      $(document).ready(function() {
-        var isEditable = false;
-        $('#editButton').click(function() {
-          if (isEditable === false) {
-            isEditable = true;
-          } else {
-            isEditable = false;
-          }
-          drawMap();
-        });
-        function drawMap() {
-          var map = new GMaps({
-            el: '#map',
-            lat: {{.Lat}},
-            lng: {{.Lng}},
-            zoom: 16
-          });
-          paths = {{.Paths}};
-          map.drawPolygon({
-            paths: paths,
-            fillColor: '#3366FF',
-            fillOpacity: 0.5,
-            strokeColor: '#3366ff',
-            strokeOpacity: 1.0,
-            strokeWeight: 1,
-            strokePosition: 'OUTSIDE',
-            editable: isEditable
-          });
-        }
-        drawMap();
-      });
-    </script>
   </head>
   <body>
     <div class="container" style="padding-top: 80px">
       <div class="row">
         <div class="col-xs-12">
           <p>Displaying {{.PathLength}} points.</p>
+					<p><button onclick="toggleHeatmap()">Toggle Heatmap</button><p>
+					<p><button onclick="toggleOverlay()">Toggle Overlay</button><p>
         </div>
       </div>
       <div class="row">
@@ -93,6 +61,39 @@ const tpl = `
       </div>
     </div>
   </body>
+<script type="text/javascript"
+  src="https://maps.googleapis.com/maps/api/js?libraries=visualization">
+</script>
+<script>
+var heatMapData = {{.Heatmap}};
+var overlayCoords = {{.Paths}};
+
+var map = new google.maps.Map(document.getElementById('map'), {
+  zoom: 17,
+  center: {lat: {{.Lat}}, lng: {{.Lng}}},
+  mapTypeId: 'satellite'
+});
+
+var heatmap = new google.maps.visualization.HeatmapLayer({
+  data: heatMapData
+});
+
+var polygon =  new google.maps.Polygon({
+          paths: overlayCoords,
+          strokeColor: '#3366FF',
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillColor: '#3366FF',
+          fillOpacity: 0.35
+        });
+
+function toggleHeatmap() {
+        heatmap.setMap(heatmap.getMap() ? null : map);
+}
+function toggleOverlay() {
+	polygon.setMap(polygon.getMap() ? null : map)
+}
+</script>
 </html>
 `
 
@@ -106,13 +107,15 @@ type Points []Point
 //Point holds X, Y coordinates
 type Point struct {
 	X, Y float64
+	Dbm  int
 }
 
 //Page Holds the Values for html template
 type Page struct {
 	Lat        float64
 	Lng        float64
-	Paths      [][]float64
+	Heatmap    template.JS
+	Paths      template.JS
 	PathLength int
 }
 
@@ -172,9 +175,9 @@ func parseXML(file string) (target GPSRun) {
 
 //parseCoords parses a GPSPoint array and puts them into a Point
 //struct that is then placed into a Points struct
-func parseCoords(gpspoints []GPSPoint) (points Points) {
+func processCoords(gpspoints []GPSPoint) (points Points) {
 	for i := 0; i < len(gpspoints); i++ {
-		points = append(points, Point{gpspoints[i].Lon, gpspoints[i].Lat})
+		points = append(points, Point{gpspoints[i].Lon, gpspoints[i].Lat, gpspoints[i].SignalDbm})
 	}
 	return
 }
@@ -187,6 +190,9 @@ func filterBSSID(gpsPoints []GPSPoint, bssid []string) (filteredPoints []GPSPoin
 				filteredPoints = append(filteredPoints, gpsPoints[i])
 			}
 		}
+	}
+	if len(filteredPoints) == 0 {
+		log.Fatal("Your BSSID was not found in the file")
 	}
 	return
 }
@@ -210,7 +216,7 @@ func (points Points) Less(i, j int) bool {
 }
 
 //crossProduct returns the modulo (and sign) of the cross product between vetors OA and OB
-func crossProduct(O, A, B Point) float64 {
+func crossProduct(A, B, O Point) float64 {
 	return (A.X-O.X)*(B.Y-O.Y) - (A.Y-O.Y)*(B.X-O.X)
 }
 
@@ -220,33 +226,26 @@ func findConvexHull(points Points) Points {
 	n := len(points)  // number of points to find convex hull
 	var result Points // final result
 	count := 0        // size of our convex hull (number of points added)
-
 	// lets sort our points by x and if equal by y
 	sort.Sort(points)
-
 	if n == 0 {
 		return result
 	}
-
 	// add the first element:
 	result = append(result, points[0])
 	count++
-
-	// find the lower hull
+	//find the lower hull
 	for i := 1; i < n; i++ {
 		// remove points which are not part of the lower hull
 		for count > 1 && crossProduct(result[count-2], result[count-1], points[i]) < 0.00000000000000001 {
 			count--
 			result = result[:count]
 		}
-
 		// add a new better point than the removed ones
 		result = append(result, points[i])
 		count++
 	}
-
 	count0 := count // our base counter for the upper hull
-
 	// find the upper hull
 	for i := n - 2; i >= 0; i-- {
 		// remove points which are not part of the upper hull
@@ -254,12 +253,10 @@ func findConvexHull(points Points) Points {
 			count--
 			result = result[:count]
 		}
-
 		// add a new better point than the removed ones
 		result = append(result, points[i])
 		count++
 	}
-
 	return result
 }
 
@@ -267,14 +264,21 @@ func findConvexHull(points Points) Points {
 //and outputs an array containing the parsed BSSIDs
 func parseBssid(bssids string) (tempBssidSlice []string) {
 	var bssidSlice []string
-	r, err := regexp.Compile("(([A-Z0-9]{2}:)){5}[A-Z0-9]{2}")
+	r, err := regexp.Compile("(([a-zA-Z0-9]{2}:)){5}[a-zA-Z0-9]{2}")
 	checkError(err)
 	if _, err := os.Stat(bssids); os.IsNotExist(err) {
 		bssidSlice = strings.Split(bssids, ",")
 	} else {
-		bssidFileData, err := ioutil.ReadFile(bssids)
+		file, err := os.Open(bssids)
 		checkError(err)
-		bssidSlice = strings.Split(string(bssidFileData), "\n")
+		defer file.Close()
+		var lines []string
+		scanner := bufio.NewScanner(file)
+		scanner.Split(bufio.ScanLines)
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		bssidSlice = lines
 	}
 	for i := 0; i < len(bssidSlice); i++ {
 		if r.MatchString(bssidSlice[i]) {
@@ -287,24 +291,27 @@ func parseBssid(bssids string) (tempBssidSlice []string) {
 	return
 }
 
-//formatToTemplate formats a Points struct into a bi-dimensional float64
-//array which makes it easier to put into template
-func formatToTemplate(points Points) (pathsData [][]float64) {
-	pathsData = make([][]float64, len(points))
-	for i := 0; i < len(points); i++ {
-		pathsData[i] = []float64{points[i].Y, points[i].X}
-	}
-	return pathsData
-}
+//genHeatmap generates a string to insert a list of heatmap objects
+//into the html template
 
 //populateTemplate populates the html template
-func populateTemplate(points [][]float64) []byte {
+func populateTemplate(points Points, allPoints Points) []byte {
 	var page Page
+	var heatmap string
 	var tplBuffer bytes.Buffer
-	page.Lat = points[0][0]
-	page.Lng = points[0][1]
-	page.PathLength = len(points)
-	page.Paths = points
+	var pathsData string
+	for i := 0; i < len(points); i++ {
+		pathsData += fmt.Sprintf("(new google.maps.LatLng(%g, %g)), ", points[i].Y, points[i].X)
+	}
+	for n := 0; n < len(allPoints); n++ {
+		fmt.Println((float64(allPoints[n].Dbm) / 10.0) + 9.0)
+		heatmap += fmt.Sprintf("{location: new google.maps.LatLng(%g, %g), weight: %d}, ", allPoints[n].Y, allPoints[n].X, (allPoints[n].Dbm/10.0)+9.0)
+	}
+	page.Lat = points[0].Y
+	page.Lng = points[0].X
+	page.PathLength = len(pathsData)
+	page.Paths = template.JS("[" + pathsData[:len(pathsData)-2] + "]")
+	page.Heatmap = template.JS("[" + heatmap[:len(heatmap)-2] + "]")
 	t, err := template.New("webpage").Parse(tpl)
 	checkError(err)
 	err = t.Execute(&tplBuffer, page)
@@ -318,14 +325,14 @@ func main() {
 	var bssid = flag.String("b", "", "File or comma seperated list of bssids")
 	var outFile = flag.String("o", "", "Html Output file")
 	flag.Parse()
-	if !flag.Parsed() || !(flag.NArg() == 3) {
+	if !flag.Parsed() || !(flag.NFlag() == 3) {
 		fmt.Println("Usage: warmap -f <Kismet gpsxml file> -b <File or List of BSSIDs> -o <HTML output file>")
 		os.Exit(1)
 	}
 	xmlTree := parseXML(*gpsxmlFile)
 	bssidData := parseBssid(*bssid)
 	filteredPoints := filterBSSID(xmlTree.GPSPoints, bssidData)
-	parsedCoords := parseCoords(filteredPoints)
-	templateBuffer := populateTemplate(formatToTemplate(findConvexHull(parsedCoords)))
+	parsedCoords := processCoords(filteredPoints)
+	templateBuffer := populateTemplate(findConvexHull(parsedCoords), parsedCoords)
 	ioutil.WriteFile(*outFile, templateBuffer, 0644)
 }

@@ -304,8 +304,7 @@ func populateTemplate(points Points, allPoints Points) []byte {
 		pathsData += fmt.Sprintf("(new google.maps.LatLng(%g, %g)), ", points[i].Y, points[i].X)
 	}
 	for n := 0; n < len(allPoints); n++ {
-		fmt.Println((float64(allPoints[n].Dbm) / 10.0) + 9.0)
-		heatmap += fmt.Sprintf("{location: new google.maps.LatLng(%g, %g), weight: %d}, ", allPoints[n].Y, allPoints[n].X, (allPoints[n].Dbm/10.0)+9.0)
+		heatmap += fmt.Sprintf("{location: new google.maps.LatLng(%g, %g), weight: %f}, ", allPoints[n].Y, allPoints[n].X, (float64(allPoints[n].Dbm)/10.0)+9.0)
 	}
 	page.Lat = points[0].Y
 	page.Lng = points[0].X

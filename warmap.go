@@ -282,7 +282,7 @@ func parseBssid(bssids string) (tempBssidSlice []string) {
 	}
 	for i := 0; i < len(bssidSlice); i++ {
 		if r.MatchString(bssidSlice[i]) {
-			tempBssidSlice = append(tempBssidSlice, bssidSlice[i])
+			tempBssidSlice = append(tempBssidSlice, strings.ToUpper(bssidSlice[i]))
 		}
 	}
 	if len(tempBssidSlice) == 0 {
